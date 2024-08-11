@@ -20,18 +20,20 @@
 
 package com.starrocks.connector.flink.examples.datastream;
 
-import com.starrocks.connector.flink.StarRocksSink;
-import com.starrocks.connector.flink.table.sink.StarRocksSinkOptions;
+import com.starrocks.connector.flink.row.sink.StarRocksSinkOP;
+import com.starrocks.connector.flink.row.sink.StarRocksSinkRowBuilder;
 import org.apache.flink.api.java.utils.MultipleParameterTool;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.sink.SinkFunction;
+import org.apache.flink.table.api.Table;
+import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 
 /**
  * This example will show how to load records to StarRocks table using Flink DataStream.
- * Each record is a csv {@link String} in Flink, and will be loaded as a row of StarRocks table.
+ * Each record is a user-defined java object {@link RowData} in Flink, and will be loaded
+ * as a row of StarRocks table.
  */
-public class LoadCsvRecords {
+public class LoadCustomJavaRecordsSqlApp {
 
     public static void main(String[] args) throws Exception {
         // To run the example, you should prepare in the following steps
@@ -58,32 +60,56 @@ public class LoadCsvRecords {
 
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
-        // Generate csv-format records. Each record has three fields separated by "\t". These
-        // fields correspond to the columns `id`, `name`, and `score` in StarRocks table.
-        String[] records = new String[]{
-                "1\tstarrocks-csv\t100",
-                "2\tflink-csv\t100"
+        // Generate records which use RowData as the container.
+        RowData[] records = new RowData[]{
+                new RowData(1, "starrocks-rowdata", 100),
+                new RowData(2, "flink-rowdata", 100),
         };
-        DataStream<String> source = env.fromElements(records);
+        DataStream<RowData> source = env.fromElements(records);
 
-        // Configure the connector with the required properties, and you also need to add properties
-        // "sink.properties.format" and "sink.properties.column_separator" to tell the connector the
-        // input records are csv-format, and the separator is "\t". You can also use other separators
-        // in the records, but remember to modify the "sink.properties.column_separator" correspondingly
-        StarRocksSinkOptions options = StarRocksSinkOptions.builder()
-                .withProperty("jdbc-url", jdbcUrl)
-                .withProperty("load-url", loadUrl)
-                .withProperty("database-name", "test")
-                .withProperty("table-name", "score_board")
-                .withProperty("username", "root")
-                .withProperty("password", "")
-                .withProperty("sink.properties.format", "csv")
-                .withProperty("sink.properties.column_separator", "\t")
-                .build();
-        // Create the sink with the options
-        SinkFunction<String> starRockSink = StarRocksSink.sink(options);
-        source.addSink(starRockSink);
+        StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
+        Table scoreBoardTable = tableEnv.fromDataStream(source);
+        tableEnv.createTemporaryView("scoreBoardTable", scoreBoardTable);
 
-        env.execute("LoadCsvRecords");
+        String sqls = "CREATE TABLE `score_board` (\n" +
+                "    `id` INT,\n" +
+                "    `name` STRING,\n" +
+                "    `score` INT,\n" +
+                "    PRIMARY KEY (id) NOT ENFORCED\n" +
+                ") WITH (\n" +
+                "    'connector' = 'starrocks',\n" +
+                "    'jdbc-url' = '" + jdbcUrl + "',\n" +
+                "    'load-url' = '" + loadUrl + "',\n" +
+                "    'database-name' = 'test',\n" +
+                "    'table-name' = 'score_board',\n" +
+                "    'username' = 'root',\n" +
+                "    'password' = ''\n" +
+                ");\n" +
+                "  INSERT INTO `score_board` select id,name,score from scoreBoardTable";
+        for (String sql : sqls.split(";")) {
+            tableEnv.executeSql(sql);
+        }
+
     }
+
+    /**
+     * A simple POJO which includes three fields: id, name and core,
+     * which match the schema of the StarRocks table `score_board`.
+     */
+    public static class RowData {
+        public int id;
+        public String name;
+        public int score;
+
+        public RowData() {
+        }
+
+        public RowData(int id, String name, int score) {
+            this.id = id;
+            this.name = name;
+            this.score = score;
+        }
+    }
+
+
 }

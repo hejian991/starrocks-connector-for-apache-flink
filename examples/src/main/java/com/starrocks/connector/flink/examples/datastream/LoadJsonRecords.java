@@ -54,7 +54,7 @@ public class LoadJsonRecords {
         // 2. replace the connector options "jdbc-url" and "load-url" with your cluster configurations
         MultipleParameterTool params = MultipleParameterTool.fromArgs(args);
         String jdbcUrl = params.get("jdbcUrl", "jdbc:mysql://127.0.0.1:9030");
-        String loadUrl = params.get("loadUrl", "127.0.0.1:8030");
+        String loadUrl = params.get("loadUrl", "127.0.0.1:8080");
 
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
